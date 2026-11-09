@@ -1,0 +1,54 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: reporta
+      POSTGRES_PASSWORD: reporta
+      POSTGRES_DB: reporta_hermosillo
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U reporta -d reporta_hermosillo"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    build:
+      context: .
+      target: builder
+    command: sh -c "npx prisma migrate deploy && npx prisma db seed"
+    environment:
+      DATABASE_URL: postgresql://reporta:reporta@db:5432/reporta_hermosillo?schema=public
+      AUTH_SECRET: ${AUTH_SECRET:-reporta-hermosillo-dev-secret-change-me}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  app:
+    build:
+      context: .
+      target: runner
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://reporta:reporta@db:5432/reporta_hermosillo?schema=public
+      AUTH_SECRET: ${AUTH_SECRET:-reporta-hermosillo-dev-secret-change-me}
+      AUTH_TRUST_HOST: "true"
+      NEXTAUTH_URL: http://localhost:3000
+      UPLOAD_DIR: /app/uploads
+      MAX_UPLOAD_MB: "10"
+    ports:
+      - "3000:3000"
+    volumes:
+      - uploads:/app/uploads
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  pgdata:
+  uploads:

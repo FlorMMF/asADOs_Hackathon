@@ -1,0 +1,380 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Rol {
+  CIUDADANO
+  CONSULTANTE
+  MODERADOR
+  PERSONAL_DEPENDENCIA
+  ADMIN_INSTITUCIONAL
+  TRANSPARENCIA
+}
+
+enum TipoSolicitud {
+  REPORTE
+  SOLICITUD
+  SOLICITUD_INFORMACION
+  PROPUESTA
+  CONFIDENCIAL
+}
+
+enum SubtipoQueja {
+  QUEJA
+  RECONOCIMIENTO
+  SUGERENCIA
+}
+
+enum EstadoSolicitud {
+  RECIBIDA
+  EN_CLASIFICACION
+  EN_MODERACION
+  PUBLICADA
+  CANALIZADA
+  RECIBIDA_DEPENDENCIA
+  EN_ATENCION
+  RESPONDIDA
+  CERRADA
+  EN_REVISION
+  REABIERTA
+  RECHAZADA
+  CANCELADA
+}
+
+enum EstadoModeracion {
+  PENDIENTE
+  APROBADO
+  RECHAZADO
+}
+
+enum ResultadoEvaluacion {
+  COMPLETA
+  PARCIAL
+  NO_RESUELTA
+}
+
+enum EstadoRevision {
+  PENDIENTE
+  ACEPTADA
+  RECHAZADA
+}
+
+enum EtapaPropuesta {
+  RECOLECTANDO_APOYOS
+  EN_REVISION
+  CON_RESPUESTA_INSTITUCIONAL
+}
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  passwordHash  String
+  nombre        String
+  rol           Rol      @default(CIUDADANO)
+  activo        Boolean  @default(true)
+  dependenciaId String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  dependencia  Dependencia?             @relation(fields: [dependenciaId], references: [id])
+  solicitudes  Solicitud[]              @relation("SolicitudesCiudadano")
+  asignaciones Asignacion[]             @relation("AsignadoPor")
+  respuestas   RespuestaInstitucional[]
+  historial    HistorialEstado[]
+  apoyos       Apoyo[]
+  revisiones   RevisionSolicitud[]      @relation("RevisionSolicitadaPor")
+  auditoria    Auditoria[]              @relation("ActorAuditoria")
+  adjuntos     Adjunto[]
+
+  @@index([dependenciaId])
+  @@index([rol])
+}
+
+model Dependencia {
+  id           String   @id @default(cuid())
+  nombre       String   @unique
+  descripcion  String?
+  competencias String?
+  contacto     String?
+  createdAt    DateTime @default(now())
+
+  users               User[]
+  categorias          Categoria[]
+  asignaciones        Asignacion[]
+  solicitudesActuales Solicitud[]  @relation("SolicitudesActuales")
+}
+
+model Categoria {
+  id                    String        @id @default(cuid())
+  nombre                String
+  tipoSolicitud         TipoSolicitud
+  dependenciaSugeridaId String?
+  plazoDias             Int           @default(15)
+  activa                Boolean       @default(true)
+  createdAt             DateTime      @default(now())
+
+  dependenciaSugerida Dependencia? @relation(fields: [dependenciaSugeridaId], references: [id])
+  solicitudes         Solicitud[]
+
+  @@unique([nombre, tipoSolicitud])
+  @@index([dependenciaSugeridaId])
+}
+
+model Zona {
+  id        String   @id @default(cuid())
+  nombre    String   @unique
+  colonias  String[]
+  centroLat Float?
+  centroLng Float?
+  createdAt DateTime @default(now())
+
+  solicitudes Solicitud[]
+}
+
+model Solicitud {
+  id                     String          @id @default(cuid())
+  folio                  String          @unique
+  tipo                   TipoSolicitud
+  titulo                 String
+  descripcion            String
+  estado                 EstadoSolicitud @default(RECIBIDA)
+  esPublico              Boolean         @default(false)
+  confidencial           Boolean         @default(false)
+  fechaLimite            DateTime?
+  fechaRespuesta         DateTime?
+  fechaCierre            DateTime?
+  atendidaPorInstitucion Boolean         @default(false)
+  resueltaPorCiudadano   Boolean         @default(false)
+
+  categoriaId         String
+  zonaId              String
+  ciudadanoId         String
+  dependenciaActualId String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  categoria           Categoria                @relation(fields: [categoriaId], references: [id])
+  zona                Zona                     @relation(fields: [zonaId], references: [id])
+  ciudadano           User                     @relation("SolicitudesCiudadano", fields: [ciudadanoId], references: [id])
+  dependenciaActual   Dependencia?             @relation("SolicitudesActuales", fields: [dependenciaActualId], references: [id])
+  reporte             Reporte?
+  info                SolicitudInformacion?
+  queja               Queja?
+  propuesta           Propuesta?
+  confidencialDetalle Confidencial?
+  adjuntos            Adjunto[]
+  asignaciones        Asignacion[]
+  respuestas          RespuestaInstitucional[]
+  historial           HistorialEstado[]
+  apoyos              Apoyo[]
+  evaluacion          Evaluacion?
+  revisiones          RevisionSolicitud[]
+
+  @@index([ciudadanoId])
+  @@index([categoriaId])
+  @@index([zonaId])
+  @@index([dependenciaActualId])
+  @@index([estado])
+  @@index([fechaLimite])
+  @@index([createdAt])
+}
+
+model Reporte {
+  id               String           @id @default(cuid())
+  solicitudId      String           @unique
+  ubicacion        String?
+  lat              Float?
+  lng              Float?
+  estadoModeracion EstadoModeracion @default(PENDIENTE)
+  moderadoPorId    String?
+  motivoModeracion String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  solicitud Solicitud @relation(fields: [solicitudId], references: [id], onDelete: Cascade)
+
+  @@index([estadoModeracion])
+}
+
+model SolicitudInformacion {
+  id                   String    @id @default(cuid())
+  solicitudId          String    @unique
+  detalle              String
+  fechaLimiteRespuesta DateTime?
+  prorroga             Boolean   @default(false)
+  createdAt            DateTime  @default(now())
+
+  solicitud Solicitud @relation(fields: [solicitudId], references: [id], onDelete: Cascade)
+}
+
+model Queja {
+  id          String       @id @default(cuid())
+  solicitudId String       @unique
+  subtipo     SubtipoQueja
+  createdAt   DateTime     @default(now())
+
+  solicitud Solicitud @relation(fields: [solicitudId], references: [id], onDelete: Cascade)
+}
+
+model Propuesta {
+  id                         String         @id @default(cuid())
+  solicitudId                String         @unique
+  umbralApoyos               Int            @default(50)
+  etapa                      EtapaPropuesta @default(RECOLECTANDO_APOYOS)
+  justificacionInstitucional String?
+  createdAt                  DateTime       @default(now())
+  updatedAt                  DateTime       @updatedAt
+
+  solicitud Solicitud @relation(fields: [solicitudId], references: [id], onDelete: Cascade)
+}
+
+model Confidencial {
+  id                String   @id @default(cuid())
+  solicitudId       String   @unique
+  restriccionAcceso String
+  createdAt         DateTime @default(now())
+
+  solicitud Solicitud @relation(fields: [solicitudId], references: [id], onDelete: Cascade)
+}
+
+model Adjunto {
+  id               String           @id @default(cuid())
+  solicitudId      String?
+  respuestaId      String?
+  subidoPorId      String?
+  path             String
+  nombreOriginal   String
+  mime             String
+  tamano           Int
+  estadoModeracion EstadoModeracion @default(PENDIENTE)
+  motivoModeracion String?
+  createdAt        DateTime         @default(now())
+
+  solicitud Solicitud?              @relation(fields: [solicitudId], references: [id], onDelete: Cascade)
+  respuesta RespuestaInstitucional? @relation(fields: [respuestaId], references: [id], onDelete: Cascade)
+  subidoPor User?                   @relation(fields: [subidoPorId], references: [id])
+
+  @@index([solicitudId])
+  @@index([respuestaId])
+  @@index([estadoModeracion])
+}
+
+model Asignacion {
+  id            String   @id @default(cuid())
+  solicitudId   String
+  dependenciaId String
+  asignadoPorId String?
+  motivo        String
+  activa        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  solicitud   Solicitud   @relation(fields: [solicitudId], references: [id], onDelete: Cascade)
+  dependencia Dependencia @relation(fields: [dependenciaId], references: [id])
+  asignadoPor User?       @relation("AsignadoPor", fields: [asignadoPorId], references: [id])
+
+  @@index([solicitudId])
+  @@index([dependenciaId])
+  @@index([activa])
+}
+
+model RespuestaInstitucional {
+  id           String   @id @default(cuid())
+  solicitudId  String
+  usuarioId    String?
+  contenido    String
+  esConclusiva Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  solicitud Solicitud @relation(fields: [solicitudId], references: [id], onDelete: Cascade)
+  usuario   User?     @relation(fields: [usuarioId], references: [id])
+  adjuntos  Adjunto[]
+
+  @@index([solicitudId])
+}
+
+model HistorialEstado {
+  id             String           @id @default(cuid())
+  solicitudId    String
+  estadoAnterior EstadoSolicitud?
+  estadoNuevo    EstadoSolicitud
+  usuarioId      String?
+  comentario     String?
+  createdAt      DateTime         @default(now())
+
+  solicitud Solicitud @relation(fields: [solicitudId], references: [id], onDelete: Cascade)
+  usuario   User?     @relation(fields: [usuarioId], references: [id])
+
+  @@index([solicitudId])
+}
+
+model Apoyo {
+  id          String   @id @default(cuid())
+  solicitudId String
+  ciudadanoId String
+  createdAt   DateTime @default(now())
+
+  solicitud Solicitud @relation(fields: [solicitudId], references: [id], onDelete: Cascade)
+  ciudadano User      @relation(fields: [ciudadanoId], references: [id])
+
+  @@unique([solicitudId, ciudadanoId])
+  @@index([solicitudId])
+}
+
+model Evaluacion {
+  id           String              @id @default(cuid())
+  solicitudId  String              @unique
+  resuelto     ResultadoEvaluacion
+  claridad     Int
+  tiempo       Int
+  satisfaccion Int
+  comentario   String?
+  createdAt    DateTime            @default(now())
+
+  solicitud Solicitud @relation(fields: [solicitudId], references: [id], onDelete: Cascade)
+}
+
+model RevisionSolicitud {
+  id              String         @id @default(cuid())
+  solicitudId     String
+  motivo          String
+  estado          EstadoRevision @default(PENDIENTE)
+  respuesta       String?
+  solicitadoPorId String?
+  createdAt       DateTime       @default(now())
+  resueltaAt      DateTime?
+
+  solicitud     Solicitud @relation(fields: [solicitudId], references: [id], onDelete: Cascade)
+  solicitadoPor User?     @relation("RevisionSolicitadaPor", fields: [solicitadoPorId], references: [id])
+
+  @@index([solicitudId])
+  @@index([estado])
+}
+
+model Auditoria {
+  id        String   @id @default(cuid())
+  actorId   String?
+  accion    String
+  entidad   String
+  entidadId String
+  detalle   Json?
+  createdAt DateTime @default(now())
+
+  actor User? @relation("ActorAuditoria", fields: [actorId], references: [id])
+
+  @@index([entidad, entidadId])
+  @@index([createdAt])
+}
+
+model FolioCounter {
+  id     String        @id @default(cuid())
+  anio   Int
+  tipo   TipoSolicitud
+  ultimo Int           @default(0)
+
+  @@unique([anio, tipo])
+}
